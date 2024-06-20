@@ -78,6 +78,9 @@ def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
         loss_rank.backward()
         optimizer.step()
 
+    # embs = model.gc1.weight
+    # print("Std:", torch.std(embs, dim=0).mean().cpu().item())
+
 
 def test(list_adj_test, list_adj_t_test, list_num_node_test, bc_mat_test):
     model.eval()
@@ -114,7 +117,7 @@ model = GNN_Bet(ninput=model_size, nhid=hidden, dropout=0.6)
 model.to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
-num_epoch = 15
+num_epoch = 1000
 
 print("Training")
 print(f"Total Number of epoches: {num_epoch}")

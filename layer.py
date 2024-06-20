@@ -69,6 +69,7 @@ class GNN_Layer_Init(Module):
 
     def forward(self, adj):
         support = self.weight
+        # support = torch.ones(self.weight.shape, device=support.device)
         output = torch.spmm(adj, support)
         if self.bias is not None:
             return output + self.bias

@@ -45,6 +45,7 @@
           name = "gnn-rank";
           targetPkgs = pkgs: (with pkgs; [
             (python310.withPackages python-packages)
+            # conda
             cudaPackages.cudatoolkit
             cudaPackages.cudnn
             just

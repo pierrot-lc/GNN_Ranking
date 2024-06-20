@@ -115,6 +115,8 @@ def graph_to_adj_bet(list_graph, list_n_sequence, list_node_num, model_size):
 
         node_num = list_node_num[i]
 
+        adj_temp_save = adj_temp.copy()
+
         adj_temp_t = adj_temp.transpose()
 
         arr_temp1 = np.sum(adj_temp, axis=1)
@@ -138,10 +140,13 @@ def graph_to_adj_bet(list_graph, list_n_sequence, list_node_num, model_size):
         for index in non_zero_ind:
             is_zero = clique_check(index, node_sequence, all_out_dict, all_in_dict)
             if is_zero == True:
-                degree_arr[index] = 0.0
+                degree_arr[index, 0] = 0.0
 
         adj_temp = adj_temp.multiply(csr_matrix(degree_arr))
         adj_temp_t = adj_temp_t.multiply(csr_matrix(degree_arr))
+
+        # adj_temp = adj_temp_save
+        # adj_temp_t = adj_temp_save.transpose()
 
         rand_pos = 0
         top_mat = csr_matrix((rand_pos, rand_pos))
@@ -218,7 +223,7 @@ def graph_to_adj_close(
         for index in non_zero_ind:
             is_zero = clique_check(index, node_sequence, all_out_dict, all_in_dict)
             if is_zero == True:
-                degree_arr[index] = 0.0
+                degree_arr[index, 0] = 0.0
 
         # modify the in-degree matrix for different layers
 
