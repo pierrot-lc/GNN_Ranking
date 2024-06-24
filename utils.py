@@ -24,7 +24,7 @@ def get_out_edges(g_nkit, node_sequence):
     return all_out_dict
 
 
-def get_in_edges(g_nkit, node_sequence):
+def get_in_edges(g_nkit: Graph, node_sequence):
     global all_in_dict
     all_in_dict = dict()
     for all_n in node_sequence:
@@ -145,8 +145,8 @@ def graph_to_adj_bet(list_graph, list_n_sequence, list_node_num, model_size):
         adj_temp = adj_temp.multiply(csr_matrix(degree_arr))
         adj_temp_t = adj_temp_t.multiply(csr_matrix(degree_arr))
 
-        # adj_temp = adj_temp_save
-        # adj_temp_t = adj_temp_save.transpose()
+        adj_temp = adj_temp_save
+        adj_temp_t = adj_temp_save.transpose()
 
         rand_pos = 0
         top_mat = csr_matrix((rand_pos, rand_pos))

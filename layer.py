@@ -5,7 +5,6 @@ from torch.nn.modules.module import Module
 import torch.nn.functional as F
 
 
-
 class GNN_Layer(Module):
     """
     Layer defined for GNN-Bet
@@ -19,11 +18,11 @@ class GNN_Layer(Module):
         if bias:
             self.bias = Parameter(torch.FloatTensor(out_features))
         else:
-            self.register_parameter('bias', None)
+            self.register_parameter("bias", None)
         self.reset_parameters()
 
     def reset_parameters(self):
-        stdv = 1. / math.sqrt(self.weight.size(1))
+        stdv = 1.0 / math.sqrt(self.weight.size(1))
         self.weight.data.uniform_(-stdv, stdv)
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
@@ -38,11 +37,14 @@ class GNN_Layer(Module):
             return output
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' \
-               + str(self.in_features) + ' -> ' \
-               + str(self.out_features) + ')'
-
-
+        return (
+            self.__class__.__name__
+            + " ("
+            + str(self.in_features)
+            + " -> "
+            + str(self.out_features)
+            + ")"
+        )
 
 
 class GNN_Layer_Init(Module):
@@ -58,44 +60,49 @@ class GNN_Layer_Init(Module):
         if bias:
             self.bias = Parameter(torch.FloatTensor(out_features))
         else:
-            self.register_parameter('bias', None)
+            self.register_parameter("bias", None)
         self.reset_parameters()
 
     def reset_parameters(self):
-        stdv = 1. / math.sqrt(self.weight.size(1))
+        stdv = 1.0 / math.sqrt(self.weight.size(1))
         self.weight.data.uniform_(-stdv, stdv)
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
 
     def forward(self, adj):
         support = self.weight
-        # support = torch.ones(self.weight.shape, device=support.device)
+        support = torch.ones(self.weight.shape, device=support.device)
+        # support = torch.randn(self.weight.shape, device=support.device)
         output = torch.spmm(adj, support)
         if self.bias is not None:
             return output + self.bias
         else:
             return output
+
     def __repr__(self):
-        return self.__class__.__name__ + ' (' \
-               + str(self.in_features) + ' -> ' \
-               + str(self.out_features) + ')'
+        return (
+            self.__class__.__name__
+            + " ("
+            + str(self.in_features)
+            + " -> "
+            + str(self.out_features)
+            + ")"
+        )
 
 
 class MLP(Module):
-    def __init__(self, nhid,dropout):
-        super(MLP,self).__init__()
+    def __init__(self, nhid, dropout):
+        super(MLP, self).__init__()
         self.dropout = dropout
-        self.linear1 = torch.nn.Linear(nhid,2*nhid)
-        self.linear2 = torch.nn.Linear(2*nhid,2*nhid)
-        self.linear3 = torch.nn.Linear(2*nhid,1)
+        self.linear1 = torch.nn.Linear(nhid, 2 * nhid)
+        self.linear2 = torch.nn.Linear(2 * nhid, 2 * nhid)
+        self.linear3 = torch.nn.Linear(2 * nhid, 1)
 
-
-    def forward(self,input_vec,dropout):
-
+    def forward(self, input_vec, dropout):
         score_temp = F.relu(self.linear1(input_vec))
-        score_temp = F.dropout(score_temp,self.dropout)
+        score_temp = F.dropout(score_temp, self.dropout)
         score_temp = F.relu(self.linear2(score_temp))
-        score_temp = F.dropout(score_temp,self.dropout)
+        score_temp = F.dropout(score_temp, self.dropout)
         score_temp = self.linear3(score_temp)
 
         return score_temp

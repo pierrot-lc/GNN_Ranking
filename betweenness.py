@@ -1,6 +1,8 @@
 import argparse
+import json
 import pickle
 import random
+from pathlib import Path
 
 import networkx as nx
 import numpy as np
@@ -12,38 +14,104 @@ from utils import *
 
 torch.manual_seed(20)
 
-# Loading graph data
-parser = argparse.ArgumentParser()
-parser.add_argument("--g", default="SF")
-args = parser.parse_args()
-gtype = args.g
-print(gtype)
-if gtype == "SF":
-    data_path = "./datasets/data_splits/SF/betweenness/"
-    print("Scale-free graphs selected.")
 
-elif gtype == "ER":
-    data_path = "./datasets/data_splits/ER/betweenness/"
-    print("Erdos-Renyi random graphs selected.")
-elif gtype == "GRP":
-    data_path = "./datasets/data_splits/GRP/betweenness/"
-    print("Gaussian Random Partition graphs selected.")
+def load_original_data():
+    # Loading graph data
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--g", default="SF")
+    args = parser.parse_args()
+    gtype = args.g
+    print(gtype)
+    if gtype == "SF":
+        data_path = "./datasets/data_splits/SF/betweenness/"
+        print("Scale-free graphs selected.")
 
+    elif gtype == "ER":
+        data_path = "./datasets/data_splits/ER/betweenness/"
+        print("Erdos-Renyi random graphs selected.")
+    elif gtype == "GRP":
+        data_path = "./datasets/data_splits/GRP/betweenness/"
+        print("Gaussian Random Partition graphs selected.")
 
-# Load training data
-print(f"Loading data...")
-with open(data_path + "training.pickle", "rb") as fopen:
-    list_graph_train, list_n_seq_train, list_num_node_train, bc_mat_train = pickle.load(
-        fopen
+    # Load training data
+    print(f"Loading data...")
+    with open(data_path + "training.pickle", "rb") as fopen:
+        list_graph_train, list_n_seq_train, list_num_node_train, bc_mat_train = (
+            pickle.load(fopen)
+        )
+
+    with open(data_path + "test.pickle", "rb") as fopen:
+        list_graph_test, list_n_seq_test, list_num_node_test, bc_mat_test = pickle.load(
+            fopen
+        )
+
+    model_size = 10000
+
+    return (
+        list_graph_train,
+        list_graph_test,
+        list_n_seq_train,
+        list_n_seq_test,
+        list_num_node_train,
+        list_num_node_test,
+        bc_mat_train,
+        bc_mat_test,
+        model_size,
     )
 
 
-with open(data_path + "test.pickle", "rb") as fopen:
-    list_graph_test, list_n_seq_test, list_num_node_test, bc_mat_test = pickle.load(
-        fopen
+def load_new_data(data_path):
+    graphs = []
+    for json_path in data_path.glob("*.json"):
+        with open(json_path, "r") as json_file:
+            json_graph = json.load(json_file)
+
+        graphs.append(nx.node_link_graph(json_graph))
+
+    list_n_sequence = [np.arange(len(g)) for g in graphs]
+    list_node_num = [len(g) for g in graphs]
+    cent_mat = np.array([[g.nodes[n]["betweenness"] for n in g.nodes] for g in graphs])
+    cent_mat = cent_mat.transpose()
+
+    return (
+        graphs,
+        list_n_sequence,
+        list_node_num,
+        cent_mat,
+        max(len(g) for g in graphs),
     )
 
-model_size = 10000
+
+# (
+#     list_graph_train,
+#     list_graph_test,
+#     list_n_seq_train,
+#     list_n_seq_test,
+#     list_num_node_train,
+#     list_num_node_test,
+#     bc_mat_train,
+#     bc_mat_test,
+#     model_size,
+# ) = load_original_data()
+
+
+data_path = Path("../gnn-ranking/datasets/geometric_1000-0.1/")
+(
+    list_graph_train,
+    list_n_seq_train,
+    list_num_node_train,
+    bc_mat_train,
+    model_size,
+) = load_new_data(data_path / "train")
+
+(
+    list_graph_test,
+    list_n_seq_test,
+    list_num_node_test,
+    bc_mat_test,
+    model_size,
+) = load_new_data(data_path / "test")
+
 # Get adjacency matrices from graphs
 print(f"Graphs to adjacency conversion.")
 
@@ -78,8 +146,7 @@ def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
         loss_rank.backward()
         optimizer.step()
 
-    # embs = model.gc1.weight
-    # print("Std:", torch.std(embs, dim=0).mean().cpu().item())
+    embs = model.gc1.weight
 
 
 def test(list_adj_test, list_adj_t_test, list_num_node_test, bc_mat_test):
@@ -113,14 +180,26 @@ def test(list_adj_test, list_adj_t_test, list_num_node_test, bc_mat_test):
 hidden = 20
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = GNN_Bet(ninput=model_size, nhid=hidden, dropout=0.6)
+device = "cpu"
+model = GNN_Bet(ninput=model_size, nhid=hidden, dropout=0.0)
 model.to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
-num_epoch = 1000
+num_epoch = 100
 
-print("Training")
+# list_adj_train = list_adj_train[:1]
+# list_adj_t_train = list_adj_t_train[:1]
+# list_num_node_train = list_num_node_train[:1]
+# bc_mat_train = bc_mat_train[:, :1]
+#
+# list_adj_test = list_adj_train
+# list_adj_t_test = list_adj_t_train
+# list_num_node_test = list_num_node_train
+# bc_mat_test = bc_mat_train
+
+print(f"Training on {device}")
 print(f"Total Number of epoches: {num_epoch}")
+print(f"Total training examples: {len(list_adj_train)}")
 for e in range(num_epoch):
     print(f"Epoch number: {e+1}/{num_epoch}")
     train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train)
@@ -131,4 +210,3 @@ for e in range(num_epoch):
 # test on 10 test graphs and print average KT Score and its stanard deviation
 # with torch.no_grad():
 #    test(list_adj_test,list_adj_t_test,list_num_node_test,bc_mat_test)
-
