@@ -60,7 +60,20 @@ def load_original_data():
     )
 
 
-def load_new_data(data_path):
+def remove_virtual_edges(graphs: list) -> list:
+    for graph in graphs:
+        to_remove = []
+        for u, v, d in graph.edges(data=True):
+            if d["virtual"]:
+                to_remove.append((u, v))
+
+        for u, v in to_remove:
+            graph.remove_edge(u, v)
+
+    return graphs
+
+
+def load_new_data(data_path, remove_virtual: bool = True):
     graphs = []
     for json_path in data_path.glob("*.json"):
         with open(json_path, "r") as json_file:
@@ -68,9 +81,22 @@ def load_new_data(data_path):
 
         graphs.append(nx.node_link_graph(json_graph))
 
+    if remove_virtual:
+        graphs = remove_virtual_edges(graphs)
+
     list_n_sequence = [np.arange(len(g)) for g in graphs]
     list_node_num = [len(g) for g in graphs]
-    cent_mat = np.array([[g.nodes[n]["betweenness"] for n in g.nodes] for g in graphs])
+    model_size = 10000
+    cent_mat = [np.array([g.nodes[n]["betweenness"] for n in g.nodes]) for g in graphs]
+    cent_mat = np.stack(
+        [
+            np.pad(
+                m,
+                (0, model_size - len(m)),
+            )
+            for m in cent_mat
+        ]
+    )
     cent_mat = cent_mat.transpose()
 
     return (
@@ -78,7 +104,7 @@ def load_new_data(data_path):
         list_n_sequence,
         list_node_num,
         cent_mat,
-        max(len(g) for g in graphs),
+        model_size,
     )
 
 
@@ -95,7 +121,8 @@ def load_new_data(data_path):
 # ) = load_original_data()
 
 
-data_path = Path("../gnn-ranking/datasets/geometric_1000-0.1/")
+data_path = Path("../gnn-ranking/datasets/geometric_1000-0.4/")
+data_path = Path("./jsons/ER/betweenness/")
 (
     list_graph_train,
     list_n_seq_train,
@@ -116,10 +143,18 @@ data_path = Path("../gnn-ranking/datasets/geometric_1000-0.1/")
 print(f"Graphs to adjacency conversion.")
 
 list_adj_train, list_adj_t_train = graph_to_adj_bet(
-    list_graph_train, list_n_seq_train, list_num_node_train, model_size
+    list_graph_train,
+    list_n_seq_train,
+    list_num_node_train,
+    model_size,
+    disable_preprocess=False,
 )
 list_adj_test, list_adj_t_test = graph_to_adj_bet(
-    list_graph_test, list_n_seq_test, list_num_node_test, model_size
+    list_graph_test,
+    list_n_seq_test,
+    list_num_node_test,
+    model_size,
+    disable_preprocess=False,
 )
 
 
