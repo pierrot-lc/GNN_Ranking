@@ -90,7 +90,9 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     # return torch.sparse.FloatTensor(indices, values, shape)
 
 
-def graph_to_adj_bet(list_graph, list_n_sequence, list_node_num, model_size, disable_preprocess = False):
+def graph_to_adj_bet(
+    list_graph, list_n_sequence, list_node_num, model_size, disable_preprocess=False
+):
     list_adjacency = list()
     list_adjacency_t = list()
     list_degree = list()

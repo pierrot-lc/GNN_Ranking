@@ -108,36 +108,36 @@ def load_new_data(data_path, remove_virtual: bool = True):
     )
 
 
-# (
-#     list_graph_train,
-#     list_graph_test,
-#     list_n_seq_train,
-#     list_n_seq_test,
-#     list_num_node_train,
-#     list_num_node_test,
-#     bc_mat_train,
-#     bc_mat_test,
-#     model_size,
-# ) = load_original_data()
-
-
-data_path = Path("../gnn-ranking/datasets/geometric_1000-0.4/")
-data_path = Path("./jsons/ER/betweenness/")
 (
     list_graph_train,
-    list_n_seq_train,
-    list_num_node_train,
-    bc_mat_train,
-    model_size,
-) = load_new_data(data_path / "train")
-
-(
     list_graph_test,
+    list_n_seq_train,
     list_n_seq_test,
+    list_num_node_train,
     list_num_node_test,
+    bc_mat_train,
     bc_mat_test,
     model_size,
-) = load_new_data(data_path / "test")
+) = load_original_data()
+
+
+# data_path = Path("./jsons/ER/betweenness/")
+# data_path = Path("../gnn-ranking/datasets/geometric_1000-0.4/")
+# (
+#     list_graph_train,
+#     list_n_seq_train,
+#     list_num_node_train,
+#     bc_mat_train,
+#     model_size,
+# ) = load_new_data(data_path / "train")
+#
+# (
+#     list_graph_test,
+#     list_n_seq_test,
+#     list_num_node_test,
+#     bc_mat_test,
+#     model_size,
+# ) = load_new_data(data_path / "test")
 
 # Get adjacency matrices from graphs
 print(f"Graphs to adjacency conversion.")
@@ -147,14 +147,14 @@ list_adj_train, list_adj_t_train = graph_to_adj_bet(
     list_n_seq_train,
     list_num_node_train,
     model_size,
-    disable_preprocess=False,
+    disable_preprocess=True,
 )
 list_adj_test, list_adj_t_test = graph_to_adj_bet(
     list_graph_test,
     list_n_seq_test,
     list_num_node_test,
     model_size,
-    disable_preprocess=False,
+    disable_preprocess=True,
 )
 
 
@@ -170,6 +170,8 @@ def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
         adj = adj.to(device)
         adj_t = adj_t.to(device)
 
+        # assert torch.all(adj_t.to_dense().T == adj.to_dense())
+
         optimizer.zero_grad()
 
         y_out = model(adj, adj_t)
@@ -181,7 +183,7 @@ def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
         loss_rank.backward()
         optimizer.step()
 
-    embs = model.gc1.weight
+    print("loss train:", loss_train / num_samples_train)
 
 
 def test(list_adj_test, list_adj_t_test, list_num_node_test, bc_mat_test):
@@ -221,6 +223,10 @@ model.to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
 num_epoch = 100
+
+tot_params = [np.prod(p.size()) for p in model.parameters() if p.requires_grad]
+tot_params = np.sum(tot_params)
+print(f"Total params: {tot_params:,}")
 
 # list_adj_train = list_adj_train[:1]
 # list_adj_t_train = list_adj_t_train[:1]

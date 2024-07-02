@@ -1,3 +1,4 @@
+import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from layer import GNN_Layer
@@ -36,7 +37,32 @@ class GNN_Bet(nn.Module):
         x2_4 = F.normalize(F.relu(self.gc4(x2_3, adj2)), p=2, dim=1)
 
         x_5 = F.relu(self.gc5(x_4, adj1))
-        x2_5 = F.relu(self.gc4(x2_4, adj2))
+        x2_5 = F.relu(self.gc5(x2_4, adj2))
+
+        # x_5 = self.gc5(x_1, adj1)
+        # x2_5 = self.gc5(x2_1, adj2)
+        # score_1 = self.score_layer(x_5, self.dropout)
+        # score_2 = self.score_layer(x2_5, self.dropout)
+        # return score_1 * score_2
+
+        # x_5 = F.normalize(x_5)
+        # x2_5 = F.normalize(x2_5)
+
+        # adj1_ = adj1.to_dense().cpu().numpy()
+        # np.save("adj", adj1_)
+        # np.save("x1", x_1.cpu().numpy())
+        # np.save("linear1", self.gc2.weight.data.cpu().numpy())
+        # o = torch.mm(x_1, self.gc2.weight)
+        # o = torch.spmm(adj1, o)
+        # np.save("conv_output", o.detach().cpu().numpy())
+        # np.save("conv_output_sav", self.gc2(x_1, adj1).detach().cpu().numpy())
+        # np.save("x2", x_2.detach().cpu().numpy())
+        # print(x_1[:10])
+        # print(x_2[:10])
+        # print(x_3[:10])
+        # print(x_4[:10])
+        # print(torch.std(x_4, dim=0))
+        # assert False
 
         # Score Calculations
 

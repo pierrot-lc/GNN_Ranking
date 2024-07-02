@@ -52,11 +52,11 @@ class GNN_Layer_Init(Module):
     First layer of GNN_Init, for embedding lookup
     """
 
-    def __init__(self, in_features, out_features, bias=True):
+    def __init__(self, in_features, out_features, bias=False):
         super(GNN_Layer_Init, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.weight = Parameter(torch.FloatTensor(in_features, out_features))
+        # self.weight = Parameter(torch.FloatTensor(in_features, out_features))
         if bias:
             self.bias = Parameter(torch.FloatTensor(out_features))
         else:
@@ -64,15 +64,14 @@ class GNN_Layer_Init(Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.weight.size(1))
-        self.weight.data.uniform_(-stdv, stdv)
+        stdv = 1.0 / math.sqrt(self.out_features)
+        # self.weight.data.uniform_(-stdv, stdv)
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
 
     def forward(self, adj):
-        support = self.weight
-        support = torch.ones(self.weight.shape, device=support.device)
-        # support = torch.randn(self.weight.shape, device=support.device)
+        # support = self.weight
+        support = torch.ones((self.in_features, self.out_features), device=adj.device)
         output = torch.spmm(adj, support)
         if self.bias is not None:
             return output + self.bias
@@ -100,9 +99,9 @@ class MLP(Module):
 
     def forward(self, input_vec, dropout):
         score_temp = F.relu(self.linear1(input_vec))
-        score_temp = F.dropout(score_temp, self.dropout)
+        # score_temp = F.dropout(score_temp, self.dropout)
         score_temp = F.relu(self.linear2(score_temp))
-        score_temp = F.dropout(score_temp, self.dropout)
+        # score_temp = F.dropout(score_temp, self.dropout)
         score_temp = self.linear3(score_temp)
 
         return score_temp

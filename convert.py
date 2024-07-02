@@ -2,6 +2,7 @@ import json
 import pickle
 from itertools import product
 from pathlib import Path
+from typing import Union
 
 import networkx as nx
 import numpy as np
@@ -20,15 +21,31 @@ def unique_graphs(list_graphs: list) -> list:
 
 
 def standard_graph(
-    graph: nx.MultiDiGraph, scores: np.array, score_name: str
+    graph: Union[nx.MultiDiGraph, nx.DiGraph], scores: np.array, score_name: str
 ) -> nx.DiGraph:
     standard = nx.DiGraph()
     standard.add_nodes_from(graph.nodes)
     nx.set_node_attributes(standard, {n: s for n, s in enumerate(scores)}, score_name)
 
-    edges = [
-        (u, v, {"distance": 1, "virtual": False}) for u, v, _ in graph.edges(data=True)
-    ]
+    if type(graph) is nx.DiGraph:
+        edges = [
+            (u, v, {"distance": 1, "virtual": False, "weight": 1})
+            for u, v in graph.edges
+        ]
+    elif type(graph) is nx.MultiDiGraph:
+        edges = {(u, v): list() for u, v, _ in graph.edges}
+        for u, v, k in graph.edges:
+            edges[(u, v)].append(k)
+
+        edges = [
+            (u, v, {"weight": max(list_k) + 1, "virtual": False, "distance": 1})
+            for (u, v), list_k in edges.items()
+        ]
+    else:
+        raise RuntimeError(
+            f"Graph should either be a DiGraph or a MultiDiGraph, got {type(graph)}"
+        )
+
     standard.add_edges_from(edges)
 
     return standard
@@ -59,15 +76,15 @@ def load_data(gtype: str, score_name: str, mode: str):
     return graphs, scores
 
 
-# gtype = "ER"
+# gtype = "SF"
 # score_name = "betweenness"
 # mode = "test"
 # graphs, scores = load_data(gtype, score_name, mode)
 # ids = unique_graphs(graphs)
 # graphs = [standard_graph(graphs[i], scores[i], score_name) for i in ids]
-#
 # root_dir = Path(f"./jsons/{gtype}/{score_name}/{mode}")
 # save_graphs(graphs, root_dir)
+
 for gtype, score_name, mode in product(
     ["SF", "ER", "GRP"], ["betweenness", "closeness"], ["train", "test"]
 ):
