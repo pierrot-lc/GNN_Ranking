@@ -27,7 +27,7 @@ def standard_graph(adj: np.ndarray, scores: np.array, score_name: str) -> nx.DiG
     )
 
     edges = [
-        (int(v), int(u), {"distance": 1, "virtual": False, "weight": int(adj[u, v])})
+        (int(v), int(u), {"distance": 1, "virtual": False, "weight": float(adj[u, v])})
         for u, v in zip(*np.nonzero(adj))
     ]
     standard.add_edges_from(edges)
@@ -55,7 +55,8 @@ def load_data(gtype: str, score_name: str, mode: str):
         graphs, node_sequences, _, scores = pickle.load(fopen)
 
     adjs = [nx.adjacency_matrix(g, nodelist=n) for g, n in zip(graphs, node_sequences)]
-    return graphs, adjs, scores.T
+    scores = [s[: len(g)] for g, s in zip(graphs, scores.T)]
+    return graphs, adjs, scores
 
 
 # gtype = "SF"
