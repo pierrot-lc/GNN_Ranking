@@ -122,6 +122,7 @@ def load_new_data(data_path, remove_virtual: bool = True):
 data_path = Path("./jsons/SF/betweenness/")
 data_path = Path("../gnn-ranking/datasets/original/SF/betweenness/")
 data_path = Path("../gnn-ranking/datasets/geometric_1000-0.4/")
+data_path = Path("../gnn-ranking/datasets/geometric_1000-0.1/")
 (
     list_graph_train,
     list_n_seq_train,
@@ -155,6 +156,8 @@ list_adj_test, list_adj_t_test = graph_to_adj_bet(
     model_size,
     disable_preprocess=False,
 )
+
+best_score = 0
 
 
 def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
@@ -213,6 +216,9 @@ def test(list_adj_test, list_adj_t_test, list_num_node_test, bc_mat_test):
         f"   Average KT score on test graphs is: {np.mean(np.array(list_kt))} and std: {np.std(np.array(list_kt))}"
     )
 
+    global best_score
+    best_score = max(np.mean(np.array(list_kt)), best_score)
+
 
 # Model parameters
 hidden = 20
@@ -223,7 +229,7 @@ model = GNN_Bet(ninput=model_size, nhid=hidden, dropout=0.0)
 model.to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
-num_epoch = 100
+num_epoch = 300
 
 tot_params = [np.prod(p.size()) for p in model.parameters() if p.requires_grad]
 tot_params = np.sum(tot_params)
@@ -254,6 +260,8 @@ for e in range(num_epoch):
     # to check test loss while training
     with torch.no_grad():
         test(list_adj_test, list_adj_t_test, list_num_node_test, bc_mat_test)
+
+print(f"Best KT score: {best_score}")
 # test on 10 test graphs and print average KT Score and its stanard deviation
 # with torch.no_grad():
 #    test(list_adj_test,list_adj_t_test,list_num_node_test,bc_mat_test)
