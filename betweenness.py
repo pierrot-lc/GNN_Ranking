@@ -1,14 +1,15 @@
 import argparse
 import json
 import pickle
-import random
 from pathlib import Path
 
 import networkx as nx
 import numpy as np
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 
+import wandb
 from model_bet import GNN_Bet
 from utils import *
 
@@ -88,13 +89,12 @@ def load_new_data(data_path, remove_virtual: bool = True):
     list_node_num = [len(g) for g in graphs]
     model_size = 10000
     cent_mat = [np.array([g.nodes[n]["betweenness"] for n in g.nodes]) for g in graphs]
-    cent_mat = np.stack([
-        np.pad(
-            m,
-            (0, model_size - len(m)),
-        )
-        for m in cent_mat
-    ])
+    cent_mat = np.stack(
+        [
+            np.pad(m, (0, model_size - len(m)))
+            for m in cent_mat
+        ]
+    )
     cent_mat = cent_mat.transpose()
 
     return (
@@ -118,18 +118,21 @@ def load_new_data(data_path, remove_virtual: bool = True):
 #     model_size,
 # ) = load_original_data()
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--train-dataset", type=Path, required=True)
+parser.add_argument("--test-dataset", type=Path, required=True)
+parser.add_argument("--hidden-size", type=int, default=24)
+parser.add_argument("--disable-preprocess", action="store_true")
+parser.add_argument("--mode", default="online")
+args = parser.parse_args()
 
-data_path = Path("./jsons/SF/betweenness/")
-data_path = Path("../gnn-ranking/datasets/original/SF/betweenness/")
-data_path = Path("../gnn-ranking/datasets/geometric_1000-0.4/")
-data_path = Path("../gnn-ranking/datasets/geometric_1000-0.1/")
 (
     list_graph_train,
     list_n_seq_train,
     list_num_node_train,
     bc_mat_train,
     model_size,
-) = load_new_data(data_path / "train")
+) = load_new_data(args.train_dataset)
 
 (
     list_graph_test,
@@ -137,7 +140,7 @@ data_path = Path("../gnn-ranking/datasets/geometric_1000-0.1/")
     list_num_node_test,
     bc_mat_test,
     model_size,
-) = load_new_data(data_path / "test")
+) = load_new_data(args.test_dataset)
 
 # Get adjacency matrices from graphs
 print(f"Graphs to adjacency conversion.")
@@ -147,22 +150,19 @@ list_adj_train, list_adj_t_train = graph_to_adj_bet(
     list_n_seq_train,
     list_num_node_train,
     model_size,
-    disable_preprocess=False,
+    disable_preprocess=args.disable_preprocess,
 )
 list_adj_test, list_adj_t_test = graph_to_adj_bet(
     list_graph_test,
     list_n_seq_test,
     list_num_node_test,
     model_size,
-    disable_preprocess=False,
+    disable_preprocess=args.disable_preprocess,
 )
-
-best_score = 0
 
 
 def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
     model.train()
-    total_count_train = list()
     loss_train = 0
     num_samples_train = len(list_adj_train)
     for i in range(num_samples_train):
@@ -183,85 +183,91 @@ def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
         loss_rank.backward()
         optimizer.step()
 
-    print("loss train:", loss_train / num_samples_train)
 
-
-def test(list_adj_test, list_adj_t_test, list_num_node_test, bc_mat_test):
+@torch.no_grad()
+def test(list_adj, list_adj_t, list_num_node, bc_mat):
     model.eval()
     loss_val = 0
     list_kt = list()
-    num_samples_test = len(list_adj_test)
+    list_wkt = list()
+    num_samples_test = len(list_adj)
     for j in range(num_samples_test):
-        adj = list_adj_test[j]
-        adj_t = list_adj_t_test[j]
+        adj = list_adj[j]
+        adj_t = list_adj_t[j]
         adj = adj.to(device)
         adj_t = adj_t.to(device)
-        num_nodes = list_num_node_test[j]
+        num_nodes = list_num_node[j]
 
         y_out = model(adj, adj_t)
 
-        true_arr = torch.from_numpy(bc_mat_test[:, j]).float()
+        true_arr = torch.from_numpy(bc_mat[:, j]).float()
         true_val = true_arr.to(device)
 
         loss_rank = loss_cal(y_out, true_val, num_nodes, device, model_size)
         loss_val = loss_val + float(loss_rank)
 
-        kt = ranking_correlation(y_out, true_val, num_nodes, model_size)
+        kt, wkt = ranking_correlation(y_out, true_val, num_nodes, model_size)
         list_kt.append(kt)
-        # g_tmp = list_graph_test[j]
-        # print(f"Graph stats:{g_tmp.number_of_nodes()}/{g_tmp.number_of_edges()},  KT:{kt}")
+        list_wkt.append(wkt)
 
-    print("loss test:", loss_val / num_samples_test)
-    print(
-        f"   Average KT score on test graphs is: {np.mean(np.array(list_kt))} and std: {np.std(np.array(list_kt))}"
-    )
+    return {
+        "loss": loss_val / num_samples_test,
+        "KT-score": np.mean(np.array(list_kt)),
+        "Weighted KT-score": np.mean(np.array(list_wkt)),
+    }
 
-    global best_score
-    best_score = max(np.mean(np.array(list_kt)), best_score)
-
-
-# Model parameters
-hidden = 20
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = "cpu"
-model = GNN_Bet(ninput=model_size, nhid=hidden, dropout=0.0)
+# device = "cpu"
+model = GNN_Bet(ninput=model_size, nhid=args.hidden_size, dropout=0.0)
 model.to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
 num_epoch = 300
+eval_freq = 5
 
-tot_params = [np.prod(p.size()) for p in model.parameters() if p.requires_grad]
-tot_params = np.sum(tot_params)
-print(f"Total params: {tot_params:,}")
+with wandb.init(
+    project="gnn-ranking",
+    group="original-implementation",
+    config={
+        "train-dataset": args.train_dataset,
+        "test-dataset": args.test_dataset,
+        "preprocess": not args.disable_preprocess,
+        "hidden-size": args.hidden_size,
+        "num-epochs": num_epoch,
+    },
+    entity="neuralcombopt",
+    mode=args.mode,
+) as logger:
+    tot_params = [np.prod(p.size()) for p in model.parameters() if p.requires_grad]
+    tot_params = np.sum(tot_params)
 
-# list_adj_train = list_adj_train[:1]
-# list_adj_t_train = list_adj_t_train[:1]
-# list_num_node_train = list_num_node_train[:1]
-# bc_mat_train = bc_mat_train[:, :1]
-#
-# list_adj_test = list_adj_train
-# list_adj_t_test = list_adj_t_train
-# list_num_node_test = list_num_node_train
-# bc_mat_test = bc_mat_train
+    logger.summary["params"] = tot_params
 
-print(f"Training on {device}")
-print(f"Total Number of epoches: {num_epoch}")
-print(f"Total training examples: {len(list_adj_train)}")
+    print(f"Training on {device}")
+    print(f"Total params: {tot_params:,}")
+    print(f"Total Number of epoches: {num_epoch:,}")
+    print(f"Total training examples: {len(list_adj_train):,}")
 
-with torch.no_grad():
-    print("First test")
-    test(list_adj_test, list_adj_t_test, list_num_node_test, bc_mat_test)
+    logger.define_metric("train.loss", summary="min")
+    logger.define_metric("val.loss", summary="min")
 
-for e in range(num_epoch):
-    print(f"Epoch number: {e + 1}/{num_epoch}")
-    train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train)
+    logger.define_metric("train.KT-score", summary="max")
+    logger.define_metric("val.KT-score", summary="max")
 
-    # to check test loss while training
-    with torch.no_grad():
-        test(list_adj_test, list_adj_t_test, list_num_node_test, bc_mat_test)
+    logger.define_metric("train.Weighted KT-score", summary="max")
+    logger.define_metric("val.Weighted KT-score", summary="max")
 
-print(f"Best KT score: {best_score}")
-# test on 10 test graphs and print average KT Score and its stanard deviation
-# with torch.no_grad():
-#    test(list_adj_test,list_adj_t_test,list_num_node_test,bc_mat_test)
+    for e in tqdm(range(num_epoch), desc="Training"):
+        train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train)
+
+        if e % eval_freq == 0:
+            metrics = test(
+                list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train
+            )
+            logger.log({"train": metrics}, step=e)
+
+            metrics = test(
+                list_adj_test, list_adj_t_test, list_num_node_test, bc_mat_test
+            )
+            logger.log({"val": metrics}, step=e)
