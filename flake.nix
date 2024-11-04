@@ -45,11 +45,10 @@
           name = "gnn-rank";
           targetPkgs = pkgs: (with pkgs; [
             (python39.withPackages python-packages)
-            conda
+            uv
             cudaPackages.cudatoolkit
             cudaPackages.cudnn
             just
-            pdm
             zlib # Numpy dep.
           ]);
         };
