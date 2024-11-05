@@ -67,6 +67,7 @@ six==1.16.0
 smmap==5.0.1
     # via gitdb
 torch==1.13.1
+tqdm==4.66.6
 typing-extensions==4.12.2
     # via
     #   torch
