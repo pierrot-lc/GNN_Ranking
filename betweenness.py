@@ -236,6 +236,7 @@ def test(list_adj, list_adj_t, list_num_node, bc_mat, diameters):
     ax.set_ylabel("KT-scores")
     fig.tight_layout(pad=2.0)
     metrics["kt-scores"] = wandb.Image(fig)
+    plt.close(fig)
 
     fig, ax = plt.subplots()
     ax.scatter(diameters, list_wkt)
@@ -244,6 +245,7 @@ def test(list_adj, list_adj_t, list_num_node, bc_mat, diameters):
     ax.set_ylabel("Weighted KT-scores")
     fig.tight_layout(pad=2.0)
     metrics["weighted-kt-scores"] = wandb.Image(fig)
+    plt.close(fig)
 
     return metrics
 
