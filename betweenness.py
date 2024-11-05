@@ -1,4 +1,5 @@
 import argparse
+import matplotlib.pyplot as plt
 import json
 import pickle
 import random
@@ -93,11 +94,20 @@ def load_new_data(data_path, remove_virtual: bool = True):
     cent_mat = np.stack([np.pad(m, (0, model_size - len(m))) for m in cent_mat])
     cent_mat = cent_mat.transpose()
 
+    diameters = []
+    for graph in graphs:
+        largest_component = max(nx.weakly_connected_components(graph), key=len)
+        largest_component = graph.subgraph(largest_component).copy()
+        largest_component = nx.to_undirected(largest_component)
+        diameter = nx.algorithms.approximation.diameter(largest_component, seed=0)
+        diameters.append(diameter)
+
     return (
         graphs,
         list_n_sequence,
         list_node_num,
         cent_mat,
+        diameters,
         model_size,
     )
 
@@ -119,7 +129,11 @@ parser.add_argument("--train-dataset", type=Path, required=True)
 parser.add_argument("--test-dataset", type=Path, required=True)
 parser.add_argument("--hidden-size", type=int, default=24)
 parser.add_argument("--disable-preprocess", action="store_true")
-parser.add_argument("--mode", default="online")
+parser.add_argument("--batch-size", type=int, default=32)
+parser.add_argument("--total-iters", type=int, default=100_000)
+parser.add_argument("--eval-freq", type=int, default=1000)
+parser.add_argument("--eval-iters", type=int, default=100)
+parser.add_argument("--mode", default="offline")
 args = parser.parse_args()
 
 (
@@ -127,6 +141,7 @@ args = parser.parse_args()
     list_n_seq_train,
     list_num_node_train,
     bc_mat_train,
+    diameters_train,
     model_size,
 ) = load_new_data(args.train_dataset)
 
@@ -135,6 +150,7 @@ args = parser.parse_args()
     list_n_seq_test,
     list_num_node_test,
     bc_mat_test,
+    diameters_test,
     model_size,
 ) = load_new_data(args.test_dataset)
 
@@ -181,7 +197,7 @@ def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
 
 
 @torch.no_grad()
-def test(list_adj, list_adj_t, list_num_node, bc_mat):
+def test(list_adj, list_adj_t, list_num_node, bc_mat, diameters):
     model.eval()
     loss_val = 0
     list_kt = list()
@@ -206,11 +222,29 @@ def test(list_adj, list_adj_t, list_num_node, bc_mat):
         list_kt.append(kt)
         list_wkt.append(wkt)
 
-    return {
+    metrics = {
         "loss": loss_val / num_samples_test,
         "KT-score": np.mean(np.array(list_kt)),
         "Weighted KT-score": np.mean(np.array(list_wkt)),
     }
+
+    fig, ax = plt.subplots()
+    ax.scatter(diameters, list_kt)
+    ax.set_title("KT-scores")
+    ax.set_xlabel("Diameters")
+    ax.set_ylabel("KT-scores")
+    fig.tight_layout(pad=2.0)
+    metrics["kt-scores"] = wandb.Image(fig)
+
+    fig, ax = plt.subplots()
+    ax.scatter(diameters, list_wkt)
+    ax.set_title("Weighted KT-scores")
+    ax.set_xlabel("Diameters")
+    ax.set_ylabel("Weighted KT-scores")
+    fig.tight_layout(pad=2.0)
+    metrics["weighted-kt-scores"] = wandb.Image(fig)
+
+    return metrics
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -219,20 +253,11 @@ model = GNN_Bet(ninput=model_size, nhid=args.hidden_size, dropout=0.0)
 model.to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
-num_epoch = 300
-eval_freq = 100
-batch_size = 32
 
 with wandb.init(
     project="gnn-ranking",
     group="original-implementation",
-    config={
-        "train-dataset": args.train_dataset,
-        "test-dataset": args.test_dataset,
-        "preprocess": not args.disable_preprocess,
-        "hidden-size": args.hidden_size,
-        "num-epochs": num_epoch,
-    },
+    config=vars(args),
     entity="neuralcombopt",
     mode=args.mode,
 ) as logger:
@@ -243,7 +268,6 @@ with wandb.init(
 
     print(f"Training on {device}")
     print(f"Total params: {tot_params:,}")
-    print(f"Total Number of epoches: {num_epoch:,}")
     print(f"Total training examples: {len(list_adj_train):,}")
 
     logger.define_metric("train.loss", summary="min")
@@ -255,11 +279,11 @@ with wandb.init(
     logger.define_metric("train.Weighted KT-score", summary="max")
     logger.define_metric("val.Weighted KT-score", summary="max")
 
-    for step in tqdm(range(10_000), desc="Training"):
+    for step in tqdm(range(args.total_iters), desc="Training"):
         optimizer.zero_grad()
 
         # Cumulate the gradients for a batch of samples.
-        for _ in range(batch_size):
+        for _ in range(args.batch_size):
             # Train the model on one sample.
             i = random.randint(0, len(list_adj_t_train) - 1)
             adj = list_adj_train[i]
@@ -278,19 +302,21 @@ with wandb.init(
 
         optimizer.step()
 
-        if step % eval_freq == 0:
-            ids = random.sample(range(len(list_adj_train)), k=100)
+        if step % args.eval_freq == 0:
+            ids = random.choices(range(len(list_adj_train)), k=args.eval_iters)
             list_adj = [list_adj_train[i] for i in ids]
             list_adj_t = [list_adj_t_train[i] for i in ids]
             list_num_node = [list_num_node_train[i] for i in ids]
             bc_mat = np.stack([bc_mat_train[:, i] for i in ids], axis=1)
-            metrics = test(list_adj, list_adj_t, list_num_node, bc_mat)
+            diameters = [diameters_train[i] for i in ids]
+            metrics = test(list_adj, list_adj_t, list_num_node, bc_mat, diameters)
             logger.log({"train": metrics}, step=step)
 
-            ids = random.sample(range(len(list_adj_test)), k=100)
+            ids = random.choices(range(len(list_adj_test)), k=args.eval_iters)
             list_adj = [list_adj_test[i] for i in ids]
             list_adj_t = [list_adj_t_test[i] for i in ids]
             list_num_node = [list_num_node_test[i] for i in ids]
             bc_mat = np.stack([bc_mat_test[:, i] for i in ids], axis=1)
-            metrics = test(list_adj, list_adj_t, list_num_node, bc_mat)
+            diameters = [diameters_test[i] for i in ids]
+            metrics = test(list_adj, list_adj_t, list_num_node, bc_mat, diameters)
             logger.log({"val": metrics}, step=step)
