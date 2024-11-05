@@ -134,6 +134,7 @@ parser.add_argument("--total-iters", type=int, default=100_000)
 parser.add_argument("--eval-freq", type=int, default=1000)
 parser.add_argument("--eval-iters", type=int, default=100)
 parser.add_argument("--mode", default="offline")
+parser.add_argument("--group", default=None)
 args = parser.parse_args()
 
 (
@@ -256,7 +257,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
 
 with wandb.init(
     project="gnn-ranking",
-    group="original-implementation",
+    group=args.group,
     config=vars(args),
     entity="neuralcombopt",
     mode=args.mode,
