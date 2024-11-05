@@ -1,6 +1,7 @@
 import argparse
 import json
 import pickle
+import random
 from pathlib import Path
 
 import networkx as nx
@@ -89,12 +90,7 @@ def load_new_data(data_path, remove_virtual: bool = True):
     list_node_num = [len(g) for g in graphs]
     model_size = 10000
     cent_mat = [np.array([g.nodes[n]["betweenness"] for n in g.nodes]) for g in graphs]
-    cent_mat = np.stack(
-        [
-            np.pad(m, (0, model_size - len(m)))
-            for m in cent_mat
-        ]
-    )
+    cent_mat = np.stack([np.pad(m, (0, model_size - len(m))) for m in cent_mat])
     cent_mat = cent_mat.transpose()
 
     return (
@@ -224,7 +220,8 @@ model.to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
 num_epoch = 300
-eval_freq = 5
+eval_freq = 100
+batch_size = 32
 
 with wandb.init(
     project="gnn-ranking",
@@ -258,16 +255,42 @@ with wandb.init(
     logger.define_metric("train.Weighted KT-score", summary="max")
     logger.define_metric("val.Weighted KT-score", summary="max")
 
-    for e in tqdm(range(num_epoch), desc="Training"):
-        train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train)
+    for step in tqdm(range(10_000), desc="Training"):
+        optimizer.zero_grad()
 
-        if e % eval_freq == 0:
-            metrics = test(
-                list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train
-            )
-            logger.log({"train": metrics}, step=e)
+        # Cumulate the gradients for a batch of samples.
+        for _ in range(batch_size):
+            # Train the model on one sample.
+            i = random.randint(0, len(list_adj_t_train) - 1)
+            adj = list_adj_train[i]
+            num_nodes = list_num_node_train[i]
+            adj_t = list_adj_t_train[i]
 
-            metrics = test(
-                list_adj_test, list_adj_t_test, list_num_node_test, bc_mat_test
-            )
-            logger.log({"val": metrics}, step=e)
+            adj = adj.to(device)
+            adj_t = adj_t.to(device)
+
+            y_out = model(adj, adj_t)
+            true_arr = torch.from_numpy(bc_mat_train[:, i]).float()
+            true_val = true_arr.to(device)
+
+            loss_rank = loss_cal(y_out, true_val, num_nodes, device, model_size)
+            loss_rank.backward()
+
+        optimizer.step()
+
+        if step % eval_freq == 0:
+            ids = random.sample(range(len(list_adj_train)), k=100)
+            list_adj = [list_adj_train[i] for i in ids]
+            list_adj_t = [list_adj_t_train[i] for i in ids]
+            list_num_node = [list_num_node_train[i] for i in ids]
+            bc_mat = np.stack([bc_mat_train[:, i] for i in ids], axis=1)
+            metrics = test(list_adj, list_adj_t, list_num_node, bc_mat)
+            logger.log({"train": metrics}, step=step)
+
+            ids = random.sample(range(len(list_adj_test)), k=100)
+            list_adj = [list_adj_test[i] for i in ids]
+            list_adj_t = [list_adj_t_test[i] for i in ids]
+            list_num_node = [list_num_node_test[i] for i in ids]
+            bc_mat = np.stack([bc_mat_test[:, i] for i in ids], axis=1)
+            metrics = test(list_adj, list_adj_t, list_num_node, bc_mat)
+            logger.log({"val": metrics}, step=step)
