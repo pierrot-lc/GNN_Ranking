@@ -41,19 +41,40 @@
             virtualenv
           ];
 
-        fhs = pkgs.buildFHSUserEnv {
-          name = "gnn-rank";
-          targetPkgs = pkgs: (with pkgs; [
-            (python39.withPackages python-packages)
-            uv
-            cudaPackages.cudatoolkit
-            cudaPackages.cudnn
-            just
-            zlib # Numpy dep.
-          ]);
+        packages = [
+          (pkgs.python310.withPackages python-packages)
+          pkgs.uv
+        ];
+
+        libs = [
+          pkgs.cudaPackages.cudatoolkit
+          pkgs.cudaPackages.cudnn
+          pkgs.stdenv.cc.cc.lib
+          pkgs.zlib
+
+          # Where your local "lib/libcuda.so" lives. If you're not on NixOS,
+          # you should provide the right path (likely another one).
+          "/run/opengl-driver"
+        ];
+
+        shell = pkgs.mkShell {
+          name = "gnn-ranking";
+          inherit packages;
+
+          shellHook = ''
+            if [ -d ".venv" ]; then
+              source .venv/bin/activate
+            fi
+
+            export SHELL="/run/current-system/sw/bin/bash"
+          '';
+
+          env = {
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath libs;
+          };
         };
       in {
-        devShells.default = fhs.env;
+        devShells.default = shell;
       }
     );
 }

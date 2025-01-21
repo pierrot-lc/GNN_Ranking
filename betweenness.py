@@ -63,29 +63,15 @@ def load_original_data():
     )
 
 
-def remove_virtual_edges(graphs: list) -> list:
-    for graph in graphs:
-        to_remove = []
-        for u, v, d in graph.edges(data=True):
-            if d["virtual"]:
-                to_remove.append((u, v))
-
-        for u, v in to_remove:
-            graph.remove_edge(u, v)
-
-    return graphs
-
-
-def load_new_data(data_path, remove_virtual: bool = True):
+def load_new_data(data_path):
     graphs = []
     for json_path in data_path.glob("*.json"):
         with open(json_path, "r") as json_file:
             json_graph = json.load(json_file)
 
-        graphs.append(nx.node_link_graph(json_graph))
-
-    if remove_virtual:
-        graphs = remove_virtual_edges(graphs)
+        g = nx.node_link_graph(json_graph)
+        g = g.to_directed()
+        graphs.append(g)
 
     list_n_sequence = [np.arange(len(g)) for g in graphs]
     list_node_num = [len(g) for g in graphs]
@@ -127,12 +113,10 @@ def load_new_data(data_path, remove_virtual: bool = True):
 parser = argparse.ArgumentParser()
 parser.add_argument("--train-dataset", type=Path, required=True)
 parser.add_argument("--test-dataset", type=Path, required=True)
-parser.add_argument("--hidden-size", type=int, default=24)
+parser.add_argument("--hidden-size", type=int, default=20)
+parser.add_argument("--learning-rate", type=float, default=0.0005)
 parser.add_argument("--disable-preprocess", action="store_true")
-parser.add_argument("--batch-size", type=int, default=32)
-parser.add_argument("--total-iters", type=int, default=100_000)
-parser.add_argument("--eval-freq", type=int, default=1000)
-parser.add_argument("--eval-iters", type=int, default=100)
+parser.add_argument("--total-epochs", type=int, default=15)
 parser.add_argument("--mode", default="offline")
 parser.add_argument("--group", default=None)
 args = parser.parse_args()
@@ -252,10 +236,10 @@ def test(list_adj, list_adj_t, list_num_node, bc_mat, diameters):
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = "cpu"
-model = GNN_Bet(ninput=model_size, nhid=args.hidden_size, dropout=0.0)
+model = GNN_Bet(ninput=model_size, nhid=args.hidden_size, dropout=0.6)
 model.to(device)
 
-optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
+optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
 with wandb.init(
     project="gnn-ranking",
@@ -282,44 +266,29 @@ with wandb.init(
     logger.define_metric("train.Weighted KT-score", summary="max")
     logger.define_metric("val.Weighted KT-score", summary="max")
 
-    for step in tqdm(range(args.total_iters), desc="Training"):
-        optimizer.zero_grad()
+    for step in tqdm(range(args.total_epochs), desc="Training"):
+        train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train)
 
-        # Cumulate the gradients for a batch of samples.
-        for _ in range(args.batch_size):
-            # Train the model on one sample.
-            i = random.randint(0, len(list_adj_t_train) - 1)
-            adj = list_adj_train[i]
-            num_nodes = list_num_node_train[i]
-            adj_t = list_adj_t_train[i]
+        # Training stats.
+        metrics = {
+            "train": test(
+                list_adj_train,
+                list_adj_t_train,
+                list_num_node_train,
+                bc_mat_train,
+                diameters_train,
+            ),
+            "val": test(
+                list_adj_test,
+                list_adj_t_test,
+                list_num_node_test,
+                bc_mat_test,
+                diameters_test,
+            ),
+        }
+        logger.log(metrics, step=step)
 
-            adj = adj.to(device)
-            adj_t = adj_t.to(device)
-
-            y_out = model(adj, adj_t)
-            true_arr = torch.from_numpy(bc_mat_train[:, i]).float()
-            true_val = true_arr.to(device)
-
-            loss_rank = loss_cal(y_out, true_val, num_nodes, device, model_size)
-            loss_rank.backward()
-
-        optimizer.step()
-
-        if step % args.eval_freq == 0:
-            ids = random.choices(range(len(list_adj_train)), k=args.eval_iters)
-            list_adj = [list_adj_train[i] for i in ids]
-            list_adj_t = [list_adj_t_train[i] for i in ids]
-            list_num_node = [list_num_node_train[i] for i in ids]
-            bc_mat = np.stack([bc_mat_train[:, i] for i in ids], axis=1)
-            diameters = [diameters_train[i] for i in ids]
-            metrics = test(list_adj, list_adj_t, list_num_node, bc_mat, diameters)
-            logger.log({"train": metrics}, step=step)
-
-            ids = random.choices(range(len(list_adj_test)), k=args.eval_iters)
-            list_adj = [list_adj_test[i] for i in ids]
-            list_adj_t = [list_adj_t_test[i] for i in ids]
-            list_num_node = [list_num_node_test[i] for i in ids]
-            bc_mat = np.stack([bc_mat_test[:, i] for i in ids], axis=1)
-            diameters = [diameters_test[i] for i in ids]
-            metrics = test(list_adj, list_adj_t, list_num_node, bc_mat, diameters)
-            logger.log({"val": metrics}, step=step)
+    logger.summary["train.final-loss"] = metrics["train"]["loss"]
+    logger.summary["val.final-loss"] = metrics["val"]["loss"]
+    logger.summary["train.final-KT-score"] = metrics["train"]["KT-score"]
+    logger.summary["val.final-KT-score"] = metrics["val"]["KT-score"]

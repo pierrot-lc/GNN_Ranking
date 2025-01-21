@@ -1,22 +1,11 @@
 [project]
 name = "GNN_Ranking"
 version = "0.1.0"
-description = "Default template for PDM package"
+description = ""
 authors = [
     {name = "Pierrot LC", email = "pierrotlc@proton.me"},
 ]
-dependencies = [
-    "networkit==10.0",
-    "networkx==2.6.3",
-    "numpy==1.21.6",
-    "pandas>=2.0.3",
-    "scipy==1.7.3",
-    "torch<2.0.0",
-]
+dependencies = []
 requires-python = "==3.10.*"
 readme = "README.md"
 license = {text = "MIT"}
-
-
-[tool.pdm]
-distribution = false
