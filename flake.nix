@@ -3,12 +3,10 @@
 
   nixConfig = {
     extra-substituters = [
-      "https://cuda-maintainers.cachix.org"
-      "https://ploop.cachix.org"
+      "https://nix-community.cachix.org"
     ];
     extra-trusted-public-keys = [
-      "cuda-maintainers.cachix.org-1:0dq3bujKpuEPMCX6U4WylrUDZ9JyUG0VpVZa7CNfq5E="
-      "ploop.cachix.org-1:i6+Fqarsbf5swqH09RXOEDvxy7Wm7vbiIXu4A9HCg1g="
+      "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
     ];
   };
 
@@ -28,21 +26,12 @@
       system: let
         pkgs = import nixpkgs {
           inherit system;
-          config = {
-            allowUnfree = true;
-            cudaSupport = true;
-          };
+          config.allowUnfree = true;
         };
 
-        python-packages = ps:
-          with ps; [
-            pip
-            setuptools
-            virtualenv
-          ];
-
         packages = [
-          (pkgs.python310.withPackages python-packages)
+          pkgs.python310
+          pkgs.python310Packages.venvShellHook
           pkgs.uv
         ];
 
@@ -61,17 +50,18 @@
           name = "gnn-ranking";
           inherit packages;
 
-          shellHook = ''
-            if [ -d ".venv" ]; then
-              source .venv/bin/activate
-            fi
-
-            export SHELL="/run/current-system/sw/bin/bash"
-          '';
-
           env = {
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath libs;
           };
+
+          venvDir = "./.venv";
+          postVenvCreation = ''
+            uv pip install -r requirements.txt
+          '';
+          postShellHook = ''
+            python3 -c "import torch; print('CUDA available' if torch.cuda.is_available() else 'CPU only')"
+            export SHELL="/run/current-system/sw/bin/bash"
+          '';
         };
       in {
         devShells.default = shell;
