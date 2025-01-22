@@ -75,7 +75,7 @@ def load_new_data(data_path):
 
     list_n_sequence = [np.arange(len(g)) for g in graphs]
     list_node_num = [len(g) for g in graphs]
-    model_size = 10000
+    model_size = max(list_node_num)
     cent_mat = [np.array([g.nodes[n]["betweenness"] for n in g.nodes]) for g in graphs]
     cent_mat = np.stack([np.pad(m, (0, model_size - len(m))) for m in cent_mat])
     cent_mat = cent_mat.transpose()
@@ -119,6 +119,7 @@ parser.add_argument("--disable-preprocess", action="store_true")
 parser.add_argument("--total-epochs", type=int, default=15)
 parser.add_argument("--mode", default="offline")
 parser.add_argument("--group", default=None)
+parser.add_argument("--random-permutations", action="store_true")
 args = parser.parse_args()
 
 (
@@ -127,7 +128,7 @@ args = parser.parse_args()
     list_num_node_train,
     bc_mat_train,
     diameters_train,
-    model_size,
+    model_size_train,
 ) = load_new_data(args.train_dataset)
 
 (
@@ -136,8 +137,13 @@ args = parser.parse_args()
     list_num_node_test,
     bc_mat_test,
     diameters_test,
-    model_size,
+    model_size_test,
 ) = load_new_data(args.test_dataset)
+
+# Pad to the biggest of the train/test graphs.
+model_size = max(model_size_train, model_size_test)
+bc_mat_train = np.pad(bc_mat_train, ((0, model_size - bc_mat_train.shape[0]), (0, 0)))
+bc_mat_test = np.pad(bc_mat_test, ((0, model_size - bc_mat_test.shape[0]), (0, 0)))
 
 # Get adjacency matrices from graphs
 print(f"Graphs to adjacency conversion.")
@@ -157,6 +163,8 @@ list_adj_test, list_adj_t_test = graph_to_adj_bet(
     disable_preprocess=args.disable_preprocess,
 )
 
+generator = torch.random.manual_seed(0)
+
 
 def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
     model.train()
@@ -166,16 +174,28 @@ def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
         adj = list_adj_train[i]
         num_nodes = list_num_node_train[i]
         adj_t = list_adj_t_train[i]
+        true_arr = torch.from_numpy(bc_mat_train[:, i]).float()
         adj = adj.to(device)
         adj_t = adj_t.to(device)
+        true_arr = true_arr.to(device)
+
+        if args.random_permutations:
+            perm = torch.randperm(len(true_arr), generator=generator)
+            adj = adj.to_dense()
+            adj_t = adj_t.to_dense()
+
+            adj = adj[perm][:, perm]
+            adj_t = adj_t[perm][:, perm]
+            true_arr = true_arr[perm]
+
+            adj = adj.to_sparse()
+            adj_t = adj_t.to_sparse()
 
         optimizer.zero_grad()
 
         y_out = model(adj, adj_t)
-        true_arr = torch.from_numpy(bc_mat_train[:, i]).float()
-        true_val = true_arr.to(device)
 
-        loss_rank = loss_cal(y_out, true_val, num_nodes, device, model_size)
+        loss_rank = loss_cal(y_out, true_arr, num_nodes, device, model_size)
         loss_train = loss_train + float(loss_rank)
         loss_rank.backward()
         optimizer.step()
