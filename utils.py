@@ -105,8 +105,10 @@ def graph_to_adj_bet(
         print(f"Processing graphs: {i+1}/{len(list_graph)}", end="\r")
         graph = list_graph[i]
         edges = list(graph.edges())
+        nodes = list(graph.nodes())
         graph = nx.MultiDiGraph()
         graph.add_edges_from(edges)
+        graph.add_nodes_from(nodes)
 
         # self_loops = [i for i in graph.selfloop_edges()]
         self_loops = list(nx.selfloop_edges(graph))
