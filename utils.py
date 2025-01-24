@@ -271,17 +271,8 @@ def ranking_correlation(y_out, true_val, node_num, model_size):
     predict_arr = y_out.cpu().detach().numpy()
     true_arr = true_val.cpu().detach().numpy()
 
-    kt = kendalltau(
-        predict_arr[:node_num], true_arr[:node_num], nan_policy="raise", method="auto"
-    ).statistic
+    kt = kendalltau(predict_arr[:node_num], true_arr[:node_num]).statistic
     wkt = weightedtau(predict_arr[:node_num], true_arr[:node_num], rank=None).statistic
-
-    if not np.isfinite(kt):
-        kt = 0.0
-
-    if not np.isfinite(wkt):
-        wkt = 0.0
-
     return kt, wkt
 
 

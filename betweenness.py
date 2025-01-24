@@ -68,6 +68,8 @@ def load_new_data(data_path):
             json_graph = json.load(json_file)
 
         g = nx.node_link_graph(json_graph)
+        g.remove_nodes_from(list(nx.isolates(g)))
+        g = nx.convert_node_labels_to_integers(g)
         g = g.to_directed()
         graphs.append(g)
 
@@ -340,6 +342,7 @@ if __name__ == "__main__":
         logger.summary["train.final-KT-score"] = metrics["train"]["KT-score"]
         logger.summary["val.final-KT-score"] = metrics["val"]["KT-score"]
 
+        Path("models").mkdir(exist_ok=True)
         torch.save(
             {
                 "hyperparams": {
