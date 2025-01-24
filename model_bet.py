@@ -10,6 +10,7 @@ import torch
 class GNN_Bet(nn.Module):
     def __init__(self, ninput, nhid, dropout):
         super(GNN_Bet, self).__init__()
+        self.ninput = ninput
 
         self.gc1 = GNN_Layer_Init(ninput, nhid)
         self.gc2 = GNN_Layer(nhid, nhid)

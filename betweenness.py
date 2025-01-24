@@ -1,14 +1,12 @@
 import argparse
-import matplotlib.pyplot as plt
 import json
 import pickle
-import random
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import torch
-import torch.nn as nn
 from tqdm import tqdm
 
 import wandb
@@ -37,7 +35,7 @@ def load_original_data():
         print("Gaussian Random Partition graphs selected.")
 
     # Load training data
-    print(f"Loading data...")
+    print("Loading data...")
     with open(data_path + "training.pickle", "rb") as fopen:
         list_graph_train, list_n_seq_train, list_num_node_train, bc_mat_train = (
             pickle.load(fopen)
@@ -98,78 +96,23 @@ def load_new_data(data_path):
     )
 
 
-# (
-#     list_graph_train,
-#     list_graph_test,
-#     list_n_seq_train,
-#     list_n_seq_test,
-#     list_num_node_train,
-#     list_num_node_test,
-#     bc_mat_train,
-#     bc_mat_test,
-#     model_size,
-# ) = load_original_data()
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--train-dataset", type=Path, required=True)
-parser.add_argument("--test-dataset", type=Path, required=True)
-parser.add_argument("--hidden-size", type=int, default=20)
-parser.add_argument("--learning-rate", type=float, default=0.0005)
-parser.add_argument("--disable-preprocess", action="store_true")
-parser.add_argument("--total-epochs", type=int, default=15)
-parser.add_argument("--mode", default="offline")
-parser.add_argument("--group", default=None)
-parser.add_argument("--random-permutations", action="store_true")
-args = parser.parse_args()
-
-(
-    list_graph_train,
-    list_n_seq_train,
-    list_num_node_train,
-    bc_mat_train,
-    diameters_train,
-    model_size_train,
-) = load_new_data(args.train_dataset)
-
-(
-    list_graph_test,
-    list_n_seq_test,
-    list_num_node_test,
-    bc_mat_test,
-    diameters_test,
-    model_size_test,
-) = load_new_data(args.test_dataset)
-
-# Pad to the biggest of the train/test graphs.
-model_size = max(model_size_train, model_size_test)
-bc_mat_train = np.pad(bc_mat_train, ((0, model_size - bc_mat_train.shape[0]), (0, 0)))
-bc_mat_test = np.pad(bc_mat_test, ((0, model_size - bc_mat_test.shape[0]), (0, 0)))
-
-# Get adjacency matrices from graphs
-print(f"Graphs to adjacency conversion.")
-
-list_adj_train, list_adj_t_train = graph_to_adj_bet(
-    list_graph_train,
-    list_n_seq_train,
-    list_num_node_train,
-    model_size,
-    disable_preprocess=args.disable_preprocess,
-)
-list_adj_test, list_adj_t_test = graph_to_adj_bet(
-    list_graph_test,
-    list_n_seq_test,
-    list_num_node_test,
-    model_size,
-    disable_preprocess=args.disable_preprocess,
-)
-
-generator = torch.random.manual_seed(0)
+def random_permutations(n_sequence, node_num, bet, rng):
+    """Randomly permute the node sequence. Do not touch the graph as the node sequence
+    is used to order the adjacency matrix later on.
+    """
+    perm = rng.permutation(node_num)
+    n_sequence_perm = n_sequence[perm]
+    bet_perm = bet[perm]
+    bet_perm = np.pad(bet_perm, (0, len(bet) - len(bet_perm)))
+    return n_sequence_perm, bet_perm
 
 
-def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
+def train(model, list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
     model.train()
     loss_train = 0
     num_samples_train = len(list_adj_train)
+    device = next(model.parameters()).device
+    model_size = model.ninput
     for i in range(num_samples_train):
         adj = list_adj_train[i]
         num_nodes = list_num_node_train[i]
@@ -179,22 +122,8 @@ def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
         adj_t = adj_t.to(device)
         true_arr = true_arr.to(device)
 
-        if args.random_permutations:
-            perm = torch.randperm(len(true_arr), generator=generator)
-            adj = adj.to_dense()
-            adj_t = adj_t.to_dense()
-
-            adj = adj[perm][:, perm]
-            adj_t = adj_t[perm][:, perm]
-            true_arr = true_arr[perm]
-
-            adj = adj.to_sparse()
-            adj_t = adj_t.to_sparse()
-
         optimizer.zero_grad()
-
         y_out = model(adj, adj_t)
-
         loss_rank = loss_cal(y_out, true_arr, num_nodes, device, model_size)
         loss_train = loss_train + float(loss_rank)
         loss_rank.backward()
@@ -202,11 +131,13 @@ def train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train):
 
 
 @torch.no_grad()
-def test(list_adj, list_adj_t, list_num_node, bc_mat, diameters):
+def test(model, list_adj, list_adj_t, list_num_node, bc_mat, diameters):
     model.eval()
     loss_val = 0
     list_kt = list()
     list_wkt = list()
+    device = next(model.parameters()).device
+    model_size = model.ninput
     num_samples_test = len(list_adj)
     for j in range(num_samples_test):
         adj = list_adj[j]
@@ -254,61 +185,170 @@ def test(list_adj, list_adj_t, list_num_node, bc_mat, diameters):
     return metrics
 
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = "cpu"
-model = GNN_Bet(ninput=model_size, nhid=args.hidden_size, dropout=0.6)
-model.to(device)
+if __name__ == "__main__":
+    # (
+    #     list_graph_train,
+    #     list_graph_test,
+    #     list_n_seq_train,
+    #     list_n_seq_test,
+    #     list_num_node_train,
+    #     list_num_node_test,
+    #     bc_mat_train,
+    #     bc_mat_test,
+    #     model_size,
+    # ) = load_original_data()
 
-optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--train-dataset", type=Path, required=True)
+    parser.add_argument("--test-dataset", type=Path, required=True)
+    parser.add_argument("--hidden-size", type=int, default=20)
+    parser.add_argument("--learning-rate", type=float, default=0.0005)
+    parser.add_argument("--disable-preprocess", action="store_true")
+    parser.add_argument("--total-epochs", type=int, default=15)
+    parser.add_argument("--mode", default="offline")
+    parser.add_argument("--group", default=None)
+    parser.add_argument(
+        "--random-permutations",
+        type=int,
+        default=0,
+        help="49 for big scale-free graphs, 5 for synthetic graphs",
+    )
+    args = parser.parse_args()
 
-with wandb.init(
-    project="gnn-ranking",
-    group=args.group,
-    config=vars(args),
-    entity="neuralcombopt",
-    mode=args.mode,
-) as logger:
-    tot_params = [np.prod(p.size()) for p in model.parameters() if p.requires_grad]
-    tot_params = np.sum(tot_params)
+    (
+        list_graph_train,
+        list_n_seq_train,
+        list_num_node_train,
+        bc_mat_train,
+        diameters_train,
+        model_size_train,
+    ) = load_new_data(args.train_dataset)
 
-    logger.summary["params"] = tot_params
+    (
+        list_graph_test,
+        list_n_seq_test,
+        list_num_node_test,
+        bc_mat_test,
+        diameters_test,
+        model_size_test,
+    ) = load_new_data(args.test_dataset)
 
-    print(f"Training on {device}")
-    print(f"Total params: {tot_params:,}")
-    print(f"Total training examples: {len(list_adj_train):,}")
+    # Pad to the biggest of the train/test graphs.
+    model_size = max(model_size_train, model_size_test)
+    bc_mat_train = np.pad(
+        bc_mat_train, ((0, model_size - bc_mat_train.shape[0]), (0, 0))
+    )
+    bc_mat_test = np.pad(bc_mat_test, ((0, model_size - bc_mat_test.shape[0]), (0, 0)))
 
-    logger.define_metric("train.loss", summary="min")
-    logger.define_metric("val.loss", summary="min")
+    # Generate random permutations of the graph if necessary.
+    if args.random_permutations > 0:
+        print("Random permutations")
+        rng = np.random.default_rng(args.random_permutations)
 
-    logger.define_metric("train.KT-score", summary="max")
-    logger.define_metric("val.KT-score", summary="max")
+        for i in range(len(list_graph_train)):
+            for _ in range(args.random_permutations):
+                n_seq, bet = random_permutations(
+                    list_n_seq_train[i], list_num_node_train[i], bc_mat_train[:, i], rng
+                )
+                list_graph_train.append(list_graph_train[i])
+                list_n_seq_train.append(n_seq)
+                list_num_node_train.append(list_num_node_train[i])
+                bc_mat_train = np.concatenate((bc_mat_train, bet[:, None]), axis=1)
+                diameters_train.append(diameters_train[i])
 
-    logger.define_metric("train.Weighted KT-score", summary="max")
-    logger.define_metric("val.Weighted KT-score", summary="max")
+    # Get adjacency matrices from graphs.
+    print("Graphs to adjacency conversion")
+    list_adj_train, list_adj_t_train = graph_to_adj_bet(
+        list_graph_train,
+        list_n_seq_train,
+        list_num_node_train,
+        model_size,
+        disable_preprocess=args.disable_preprocess,
+    )
+    list_adj_test, list_adj_t_test = graph_to_adj_bet(
+        list_graph_test,
+        list_n_seq_test,
+        list_num_node_test,
+        model_size,
+        disable_preprocess=args.disable_preprocess,
+    )
 
-    for step in tqdm(range(args.total_epochs), desc="Training"):
-        train(list_adj_train, list_adj_t_train, list_num_node_train, bc_mat_train)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = "cpu"
+    model = GNN_Bet(ninput=model_size, nhid=args.hidden_size, dropout=0.6)
+    model.to(device)
 
-        # Training stats.
-        metrics = {
-            "train": test(
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+
+    with wandb.init(
+        project="gnn-ranking",
+        group=args.group,
+        config=vars(args),
+        entity="neuralcombopt",
+        mode=args.mode,
+    ) as logger:
+        tot_params = [np.prod(p.size()) for p in model.parameters() if p.requires_grad]
+        tot_params = np.sum(tot_params)
+
+        logger.summary["params"] = tot_params
+
+        print(f"Training on {device}")
+        print(f"Total params: {tot_params:,}")
+        print(f"Total training examples: {len(list_adj_train):,}")
+
+        logger.define_metric("train.loss", summary="min")
+        logger.define_metric("val.loss", summary="min")
+
+        logger.define_metric("train.KT-score", summary="max")
+        logger.define_metric("val.KT-score", summary="max")
+
+        logger.define_metric("train.Weighted KT-score", summary="max")
+        logger.define_metric("val.Weighted KT-score", summary="max")
+
+        for step in tqdm(range(args.total_epochs), desc="Training"):
+            train(
+                model,
                 list_adj_train,
                 list_adj_t_train,
                 list_num_node_train,
                 bc_mat_train,
-                diameters_train,
-            ),
-            "val": test(
-                list_adj_test,
-                list_adj_t_test,
-                list_num_node_test,
-                bc_mat_test,
-                diameters_test,
-            ),
-        }
-        logger.log(metrics, step=step)
+            )
 
-    logger.summary["train.final-loss"] = metrics["train"]["loss"]
-    logger.summary["val.final-loss"] = metrics["val"]["loss"]
-    logger.summary["train.final-KT-score"] = metrics["train"]["KT-score"]
-    logger.summary["val.final-KT-score"] = metrics["val"]["KT-score"]
+            # Training stats.
+            metrics = {
+                "train": test(
+                    model,
+                    list_adj_train,
+                    list_adj_t_train,
+                    list_num_node_train,
+                    bc_mat_train,
+                    diameters_train,
+                ),
+                "val": test(
+                    model,
+                    list_adj_test,
+                    list_adj_t_test,
+                    list_num_node_test,
+                    bc_mat_test,
+                    diameters_test,
+                ),
+            }
+            logger.log(metrics, step=step)
+
+        logger.summary["train.final-loss"] = metrics["train"]["loss"]
+        logger.summary["val.final-loss"] = metrics["val"]["loss"]
+        logger.summary["train.final-KT-score"] = metrics["train"]["KT-score"]
+        logger.summary["val.final-KT-score"] = metrics["val"]["KT-score"]
+
+        torch.save(
+            {
+                "hyperparams": {
+                    "ninput": model_size,
+                    "nhid": args.hidden_size,
+                    "dropout": 0.6,
+                },
+                "disable-preprocess": args.disable_preprocess,
+                "state-dict": model.cpu().state_dict(),
+            },
+            "models/model.pth",
+        )
