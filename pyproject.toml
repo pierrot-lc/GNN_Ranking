@@ -1,0 +1,27 @@
+[project]
+name = "murata-gnn-ranking"
+version = "0.1.0"
+description = "Learning to Rank nodes using a GNN"
+authors = [
+    {name = "Pierrot LC", email = "pierrotlc@proton.me"},
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = "==3.10.*"
+dependencies = [
+    "matplotlib>=3.10.0",
+    "networkit>=11.0",
+    "networkx[default]>=3.3",
+    "numpy==1.23.0",
+    "pandas>=2.2.3",
+    "scipy>=1.13.1",
+    "torch==1.13.1",
+    "tqdm>=4.67.1",
+    "wandb>=0.19.4",
+]
+
+[tool.ruff]
+src = ["src"]
+
+[tool.basedpyright]
+typeCheckingMode = "basic"
