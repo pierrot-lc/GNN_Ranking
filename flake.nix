@@ -56,7 +56,7 @@
 
           venvDir = "./.venv";
           postVenvCreation = ''
-            # uv pip install -r requirements.txt
+            uv sync
           '';
           postShellHook = ''
             python3 -c "import torch; print('CUDA available' if torch.cuda.is_available() else 'CPU only')"
