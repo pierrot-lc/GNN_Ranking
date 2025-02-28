@@ -20,12 +20,13 @@
   }: let
     system = "x86_64-linux";
     pkgs = import nixpkgs {inherit system;};
+
     packages = [
       pkgs.uv
     ];
+
     libs = [
-      pkgs.cudaPackages.cudatoolkit
-      pkgs.cudaPackages.cudnn
+      pkgs.libxcrypt-legacy
       pkgs.stdenv.cc.cc.lib
       pkgs.zlib
 
@@ -33,15 +34,15 @@
       # you should provide the right path (likely another one).
       "/run/opengl-driver"
     ];
+
     shell = pkgs.mkShell {
       name = "GNN_Ranking-repro";
       inherit packages;
       env = {
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath libs;
-        XLA_FLAGS = "--xla_gpu_cuda_data_dir=${pkgs.cudatoolkit}";
       };
     };
   in {
-    devShells.default = shell;
+    devShells.${system}.default = shell;
   };
 }

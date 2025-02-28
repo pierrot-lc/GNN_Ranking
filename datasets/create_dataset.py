@@ -12,7 +12,7 @@ def reorder_list(input_list,serial_list):
 
 def create_dataset(list_data,num_copies):
 
-    adj_size = 10000
+    adj_size = 1_000_000
     num_data = len(list_data)
     total_num = num_data*num_copies
     cent_mat = np.zeros((adj_size,total_num),dtype=np.float)
@@ -75,13 +75,13 @@ def get_split(source_file,num_train,num_test,num_copies,adj_size,save_path):
 
 #creating training/test dataset split for the model
 
-adj_size = 10000
-graph_types = ["ER","SF","GRP"]
-num_train = 40
-num_test = 10
+adj_size = 1_000_000
+graph_types = ["SF"]
+num_train = 4
+num_test = 1
 #Number of permutations for node sequence
 #Can be raised higher to get more training graphs
-num_copies = 6
+num_copies = 50
 
 #Total number of training graphs = 40*6 = 240
 
