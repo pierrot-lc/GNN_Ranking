@@ -52,7 +52,7 @@ class GNN_Layer_Init(Module):
     First layer of GNN_Init, for embedding lookup
     """
 
-    def __init__(self, in_features, out_features, bias=False):
+    def __init__(self, in_features, out_features, bias=True):
         super(GNN_Layer_Init, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
